@@ -80,31 +80,37 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
     st.markdown("### Tag Questions")
     
     # Create the table structure using columns
-    header_cols = st.columns([3, 1.5, 1.5, 1.5])  # Adjust width ratios
+    header_cols = st.columns([0.3, 2.7, 1.5, 1.5, 1.5])  # Add column for numbering
     with header_cols[0]:
-        st.markdown("**Question**")
+        st.markdown("**#**")
     with header_cols[1]:
-        st.markdown("**Subject**")
+        st.markdown("**Question**")
     with header_cols[2]:
-        st.markdown("**Topic**")
+        st.markdown("**Subject**")
     with header_cols[3]:
+        st.markdown("**Topic**")
+    with header_cols[4]:
         st.markdown("**Subtopic**")
     
     st.markdown("---")
     
     # Create rows for each question
     for idx, row in questions_df.iterrows():
-        question = row['Question']
+        question = row[st.session_state.get('question_col', 'Question')]
         
         # Create columns for this row
-        row_cols = st.columns([3, 1.5, 1.5, 1.5])
+        row_cols = st.columns([0.3, 2.7, 1.5, 1.5, 1.5])
+        
+        # Number column
+        with row_cols[0]:
+            st.markdown(f"**{idx + 1}**")
         
         # Question column (read-only)
-        with row_cols[0]:
+        with row_cols[1]:
             st.markdown(f"*{question}*")
         
         # Subject dropdown
-        with row_cols[1]:
+        with row_cols[2]:
             subject_key = f"subject_{idx}"
             current_subject = st.session_state.question_tags.get(idx, {}).get('Subject', '')
             subject_index = all_subjects.index(current_subject) + 1 if current_subject in all_subjects else 0
@@ -118,7 +124,7 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
             )
         
         # Topic dropdown (dependent on subject)
-        with row_cols[2]:
+        with row_cols[3]:
             topic_options = [""]
             topic_index = 0
             
@@ -138,7 +144,7 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
             )
         
         # Subtopic dropdown (dependent on subject and topic)
-        with row_cols[3]:
+        with row_cols[4]:
             subtopic_options = [""]
             subtopic_index = 0
             
@@ -158,15 +164,17 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
             )
         
         # Store selections in session state
+        answer = row[st.session_state.get('answer_col', 'Answer')]
         st.session_state.question_tags[idx] = {
             'Question': question,
+            'Answer': answer,
             'Subject': selected_subject if selected_subject != "" else None,
             'Topic': selected_topic if selected_topic != "" else None,
             'Subtopic': selected_subtopic if selected_subtopic != "" else None
         }
         
-        # Add some spacing between rows
-        st.markdown("")
+        # Add separator line between rows
+        st.markdown("---")
 
 def main():
     st.title("📚 Question Tagging Tool")
@@ -191,9 +199,34 @@ def main():
             # Read questions file
             questions_df = pd.read_excel(uploaded_file)
             
-            if 'Question' not in questions_df.columns:
-                st.error("Questions file must contain a 'Question' column")
+            # Check for required columns (case-insensitive)
+            columns_lower = [col.strip().lower() for col in questions_df.columns]
+            required_columns = ['question', 'answer']
+            
+            # Find actual column names
+            question_col = None
+            answer_col = None
+            
+            for col in questions_df.columns:
+                if col.strip().lower() == 'question':
+                    question_col = col
+                elif col.strip().lower() == 'answer':
+                    answer_col = col
+            
+            missing_columns = []
+            if not question_col:
+                missing_columns.append('Question')
+            if not answer_col:
+                missing_columns.append('Answer')
+            
+            if missing_columns:
+                st.error(f"Questions file must contain columns: Question, Answer. Missing: {', '.join(missing_columns)}")
+                st.info(f"Found columns: {list(questions_df.columns)}")
                 return
+            
+            # Store column names in session state
+            st.session_state.question_col = question_col
+            st.session_state.answer_col = answer_col
             
             st.success(f"Loaded {len(questions_df)} questions")
             
@@ -216,6 +249,7 @@ def main():
                 for idx, tags in st.session_state.question_tags.items():
                     export_data.append({
                         'Question': tags['Question'],
+                        'Answer': tags['Answer'],
                         'Subject': tags['Subject'] or '',
                         'Topic': tags['Topic'] or '',
                         'Subtopic': tags['Subtopic'] or ''
@@ -263,8 +297,9 @@ def main():
         - Topic  
         - Subtopic
         
-        **Questions.xlsx:** Should contain column:
+        **Questions.xlsx:** Should contain columns:
         - Question
+        - Answer
         """)
 
 if __name__ == "__main__":
