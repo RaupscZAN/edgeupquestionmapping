@@ -73,6 +73,10 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
     if 'question_tags' not in st.session_state:
         st.session_state.question_tags = {}
     
+    # Initialize session state for multiple mappings per question
+    if 'question_mappings' not in st.session_state:
+        st.session_state.question_mappings = {}
+    
     # Get all unique subjects for the subject dropdown
     all_subjects = list(hierarchy.keys())
     
@@ -80,7 +84,7 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
     st.markdown("### Tag Questions")
     
     # Create the table structure using columns
-    header_cols = st.columns([0.3, 2.7, 1.5, 1.5, 1.5])  # Add column for numbering
+    header_cols = st.columns([0.3, 2.4, 1.5, 1.5, 1.5, 0.8])  # Adjusted for add button
     with header_cols[0]:
         st.markdown("**#**")
     with header_cols[1]:
@@ -91,89 +95,126 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
         st.markdown("**Topic**")
     with header_cols[4]:
         st.markdown("**Subtopic**")
+    with header_cols[5]:
+        st.markdown("**Actions**")
     
     st.markdown("---")
     
     # Create rows for each question
     for idx, row in questions_df.iterrows():
         question = row[st.session_state.get('question_col', 'Question')]
-        
-        # Create columns for this row
-        row_cols = st.columns([0.3, 2.7, 1.5, 1.5, 1.5])
-        
-        # Number column
-        with row_cols[0]:
-            st.markdown(f"**{idx + 1}**")
-        
-        # Question column (read-only)
-        with row_cols[1]:
-            st.markdown(f"*{question}*")
-        
-        # Subject dropdown
-        with row_cols[2]:
-            subject_key = f"subject_{idx}"
-            current_subject = st.session_state.question_tags.get(idx, {}).get('Subject', '')
-            subject_index = all_subjects.index(current_subject) + 1 if current_subject in all_subjects else 0
-            
-            selected_subject = st.selectbox(
-                "",
-                options=[""] + all_subjects,
-                key=subject_key,
-                index=subject_index,
-                label_visibility="collapsed"
-            )
-        
-        # Topic dropdown (dependent on subject)
-        with row_cols[3]:
-            topic_options = [""]
-            topic_index = 0
-            
-            if selected_subject and selected_subject != "":
-                topic_options = [""] + list(hierarchy[selected_subject].keys())
-                current_topic = st.session_state.question_tags.get(idx, {}).get('Topic', '')
-                if current_topic in topic_options:
-                    topic_index = topic_options.index(current_topic)
-            
-            topic_key = f"topic_{idx}"
-            selected_topic = st.selectbox(
-                "",
-                options=topic_options,
-                key=topic_key,
-                index=topic_index,
-                label_visibility="collapsed"
-            )
-        
-        # Subtopic dropdown (dependent on subject and topic)
-        with row_cols[4]:
-            subtopic_options = [""]
-            subtopic_index = 0
-            
-            if selected_subject and selected_topic and selected_subject != "" and selected_topic != "":
-                subtopic_options = [""] + hierarchy[selected_subject][selected_topic]
-                current_subtopic = st.session_state.question_tags.get(idx, {}).get('Subtopic', '')
-                if current_subtopic in subtopic_options:
-                    subtopic_index = subtopic_options.index(current_subtopic)
-            
-            subtopic_key = f"subtopic_{idx}"
-            selected_subtopic = st.selectbox(
-                "",
-                options=subtopic_options,
-                key=subtopic_key,
-                index=subtopic_index,
-                label_visibility="collapsed"
-            )
-        
-        # Store selections in session state
         answer = row[st.session_state.get('answer_col', 'Answer')]
+        
+        # Initialize mappings for this question if not exists
+        if idx not in st.session_state.question_mappings:
+            st.session_state.question_mappings[idx] = [{'Subject': '', 'Topic': '', 'Subtopic': ''}]
+        
+        # Display each mapping for this question
+        for mapping_idx, mapping in enumerate(st.session_state.question_mappings[idx]):
+            # Create columns for this row
+            row_cols = st.columns([0.3, 2.4, 1.5, 1.5, 1.5, 0.8])
+            
+            # Number column (only show for first mapping)
+            with row_cols[0]:
+                if mapping_idx == 0:
+                    st.markdown(f"**{idx + 1}**")
+                else:
+                    st.markdown("")
+            
+            # Question column (only show for first mapping)
+            with row_cols[1]:
+                if mapping_idx == 0:
+                    st.markdown(f"*{question}*")
+                else:
+                    st.markdown("")
+            
+            # Subject dropdown
+            with row_cols[2]:
+                subject_key = f"subject_{idx}_{mapping_idx}"
+                current_subject = mapping.get('Subject', '')
+                subject_index = all_subjects.index(current_subject) + 1 if current_subject in all_subjects else 0
+                
+                selected_subject = st.selectbox(
+                    "",
+                    options=[""] + all_subjects,
+                    key=subject_key,
+                    index=subject_index,
+                    label_visibility="collapsed"
+                )
+            
+            # Topic dropdown (dependent on subject)
+            with row_cols[3]:
+                topic_options = [""]
+                topic_index = 0
+                
+                if selected_subject and selected_subject != "":
+                    topic_options = [""] + list(hierarchy[selected_subject].keys())
+                    current_topic = mapping.get('Topic', '')
+                    if current_topic in topic_options:
+                        topic_index = topic_options.index(current_topic)
+                
+                topic_key = f"topic_{idx}_{mapping_idx}"
+                selected_topic = st.selectbox(
+                    "",
+                    options=topic_options,
+                    key=topic_key,
+                    index=topic_index,
+                    label_visibility="collapsed"
+                )
+            
+            # Subtopic dropdown (dependent on subject and topic)
+            with row_cols[4]:
+                subtopic_options = [""]
+                subtopic_index = 0
+                
+                if selected_subject and selected_topic and selected_subject != "" and selected_topic != "":
+                    subtopic_options = [""] + hierarchy[selected_subject][selected_topic]
+                    current_subtopic = mapping.get('Subtopic', '')
+                    if current_subtopic in subtopic_options:
+                        subtopic_index = subtopic_options.index(current_subtopic)
+                
+                subtopic_key = f"subtopic_{idx}_{mapping_idx}"
+                selected_subtopic = st.selectbox(
+                    "",
+                    options=subtopic_options,
+                    key=subtopic_key,
+                    index=subtopic_index,
+                    label_visibility="collapsed"
+                )
+            
+            # Action buttons
+            with row_cols[5]:
+                button_cols = st.columns(2)
+                
+                # Add mapping button (only show for last mapping)
+                if mapping_idx == len(st.session_state.question_mappings[idx]) - 1:
+                    with button_cols[0]:
+                        if st.button("➕", key=f"add_{idx}", help="Add another mapping"):
+                            st.session_state.question_mappings[idx].append({'Subject': '', 'Topic': '', 'Subtopic': ''})
+                            st.rerun()
+                
+                # Delete mapping button (only show if more than one mapping)
+                if len(st.session_state.question_mappings[idx]) > 1:
+                    with button_cols[1]:
+                        if st.button("🗑️", key=f"delete_{idx}_{mapping_idx}", help="Delete this mapping"):
+                            st.session_state.question_mappings[idx].pop(mapping_idx)
+                            st.rerun()
+            
+            # Update the mapping in session state
+            st.session_state.question_mappings[idx][mapping_idx] = {
+                'Subject': selected_subject if selected_subject != "" else '',
+                'Topic': selected_topic if selected_topic != "" else '',
+                'Subtopic': selected_subtopic if selected_subtopic != "" else ''
+            }
+        
+        # Store question and answer data for export
         st.session_state.question_tags[idx] = {
             'Question': question,
             'Answer': answer,
-            'Subject': selected_subject if selected_subject != "" else None,
-            'Topic': selected_topic if selected_topic != "" else None,
-            'Subtopic': selected_subtopic if selected_subtopic != "" else None
+            'Mappings': st.session_state.question_mappings[idx]
         }
         
-        # Add separator line between rows
+        # Add separator line between questions
         st.markdown("---")
 
 def main():
@@ -238,22 +279,43 @@ def main():
             st.markdown("### Export Tagged Questions")
             
             # Check if all questions are tagged
-            tagged_count = sum(1 for tags in st.session_state.question_tags.values() 
-                             if tags['Subject'] and tags['Topic'] and tags['Subtopic'])
+            tagged_count = 0
+            total_mappings = 0
+            for tags in st.session_state.question_tags.values():
+                for mapping in tags.get('Mappings', []):
+                    total_mappings += 1
+                    if mapping['Subject'] and mapping['Topic'] and mapping['Subtopic']:
+                        tagged_count += 1
             
-            st.info(f"Tagged: {tagged_count}/{len(questions_df)} questions")
+            st.info(f"Tagged mappings: {tagged_count}/{total_mappings}")
             
             if st.button("📥 Export Tagged Questions", type="primary"):
-                # Create export DataFrame
+                # Create export DataFrame with multiple rows for multiple mappings
                 export_data = []
                 for idx, tags in st.session_state.question_tags.items():
-                    export_data.append({
-                        'Question': tags['Question'],
-                        'Answer': tags['Answer'],
-                        'Subject': tags['Subject'] or '',
-                        'Topic': tags['Topic'] or '',
-                        'Subtopic': tags['Subtopic'] or ''
-                    })
+                    mappings = tags.get('Mappings', [])
+                    
+                    # If there are valid mappings, create a row for each
+                    valid_mappings = [m for m in mappings if m['Subject'] or m['Topic'] or m['Subtopic']]
+                    
+                    if valid_mappings:
+                        for mapping in valid_mappings:
+                            export_data.append({
+                                'Question': tags['Question'],
+                                'Answer': tags['Answer'],
+                                'Subject': mapping['Subject'] or '',
+                                'Topic': mapping['Topic'] or '',
+                                'Subtopic': mapping['Subtopic'] or ''
+                            })
+                    else:
+                        # If no valid mappings, still include the question with empty tags
+                        export_data.append({
+                            'Question': tags['Question'],
+                            'Answer': tags['Answer'],
+                            'Subject': '',
+                            'Topic': '',
+                            'Subtopic': ''
+                        })
                 
                 export_df = pd.DataFrame(export_data)
                 
