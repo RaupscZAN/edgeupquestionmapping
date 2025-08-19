@@ -1,0 +1,3 @@
+@echo off
+echo Starting Question Tagging Tool with Session Persistence...
+python -m streamlit run app_with_persistence.py

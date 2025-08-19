@@ -1,18 +1,31 @@
 """
-Question Tagging Tool with Session Persistence - Streamlit App
+Question Tagging Tool - Streamlit App
 
-This version includes automatic session persistence that survives internet disconnections.
-Session data is saved to a local file and automatically restored on page reload.
+How to run:
+1. Install required packages: pip install streamlit pandas openpyxl
+2. Run the app: streamlit run app.py
+3. Upload your Questions.xlsx file via the interface
+4. Tag questions using dependent dropdowns
+5. Export and download the tagged questions
+
+Requirements:
+- Subjects.xlsx.xlsx file should be in the same directory
+- Questions.xlsx file will be uploaded by user
 """
 
 import streamlit as st
 import pandas as pd
 import io
-import json
-import os
 from typing import Dict, List, Tuple
-from datetime import datetime
-import pickle
+import json
+from session_persistence import (
+    inject_js_for_local_storage,
+    save_session_to_local_storage,
+    create_auto_save_component,
+    export_session_backup,
+    import_session_backup,
+    clear_session
+)
 
 # Page configuration
 st.set_page_config(
@@ -20,62 +33,6 @@ st.set_page_config(
     page_icon="📚",
     layout="wide"
 )
-
-# Session file path
-SESSION_FILE = "session_backup.pkl"
-AUTO_SAVE_INTERVAL = 10  # seconds
-
-def save_session_to_file():
-    """Save the current session state to a local file."""
-    try:
-        session_data = {
-            'timestamp': datetime.now().isoformat(),
-            'question_tags': st.session_state.get('question_tags', {}),
-            'question_mappings': st.session_state.get('question_mappings', {}),
-            'question_col': st.session_state.get('question_col', 'Question'),
-            'answer_col': st.session_state.get('answer_col', 'Answer'),
-            'uploaded_file_name': st.session_state.get('uploaded_file_name', None),
-            'questions_data': st.session_state.get('questions_data', None)
-        }
-        
-        with open(SESSION_FILE, 'wb') as f:
-            pickle.dump(session_data, f)
-        
-        st.session_state.last_save_time = datetime.now()
-        return True
-    except Exception as e:
-        print(f"Error saving session: {e}")
-        return False
-
-def load_session_from_file():
-    """Load session state from a local file."""
-    try:
-        if os.path.exists(SESSION_FILE):
-            with open(SESSION_FILE, 'rb') as f:
-                session_data = pickle.load(f)
-            
-            # Restore session state
-            st.session_state.question_tags = session_data.get('question_tags', {})
-            st.session_state.question_mappings = session_data.get('question_mappings', {})
-            st.session_state.question_col = session_data.get('question_col', 'Question')
-            st.session_state.answer_col = session_data.get('answer_col', 'Answer')
-            st.session_state.uploaded_file_name = session_data.get('uploaded_file_name', None)
-            st.session_state.questions_data = session_data.get('questions_data', None)
-            st.session_state.session_restored = True
-            
-            return session_data.get('timestamp', None)
-    except Exception as e:
-        print(f"Error loading session: {e}")
-    return None
-
-def auto_save_check():
-    """Check if it's time to auto-save."""
-    if 'last_save_time' not in st.session_state:
-        st.session_state.last_save_time = datetime.now()
-    
-    time_since_save = (datetime.now() - st.session_state.last_save_time).total_seconds()
-    if time_since_save > AUTO_SAVE_INTERVAL:
-        save_session_to_file()
 
 def load_subjects_data() -> pd.DataFrame:
     """Load the subjects hierarchy from Excel file."""
@@ -135,17 +92,6 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
     # Create table header
     st.markdown("### Tag Questions")
     
-    # Auto-save status indicator
-    col1, col2 = st.columns([8, 2])
-    with col2:
-        last_save = st.session_state.get('last_save_time', None)
-        if last_save:
-            time_ago = (datetime.now() - last_save).total_seconds()
-            if time_ago < 60:
-                st.caption(f"✅ Auto-saved {int(time_ago)}s ago")
-            else:
-                st.caption(f"✅ Auto-saved {int(time_ago/60)}m ago")
-    
     # Create the table structure using columns
     header_cols = st.columns([0.3, 2.4, 1.5, 1.5, 1.5, 0.8])  # Adjusted for add button
     with header_cols[0]:
@@ -162,9 +108,6 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
         st.markdown("**Actions**")
     
     st.markdown("---")
-    
-    # Track if any changes were made
-    changes_made = False
     
     # Create rows for each question
     for idx, row in questions_df.iterrows():
@@ -207,9 +150,6 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                     index=subject_index,
                     label_visibility="collapsed"
                 )
-                
-                if selected_subject != current_subject:
-                    changes_made = True
             
             # Topic dropdown (dependent on subject)
             with row_cols[3]:
@@ -230,9 +170,6 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                     index=topic_index,
                     label_visibility="collapsed"
                 )
-                
-                if selected_topic != mapping.get('Topic', ''):
-                    changes_made = True
             
             # Subtopic dropdown (dependent on subject and topic)
             with row_cols[4]:
@@ -253,9 +190,6 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                     index=subtopic_index,
                     label_visibility="collapsed"
                 )
-                
-                if selected_subtopic != mapping.get('Subtopic', ''):
-                    changes_made = True
             
             # Action buttons
             with row_cols[5]:
@@ -266,7 +200,6 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                     with button_cols[0]:
                         if st.button("➕", key=f"add_{idx}", help="Add another mapping"):
                             st.session_state.question_mappings[idx].append({'Subject': '', 'Topic': '', 'Subtopic': ''})
-                            changes_made = True
                             st.rerun()
                 
                 # Delete mapping button (only show if more than one mapping)
@@ -274,7 +207,6 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                     with button_cols[1]:
                         if st.button("🗑️", key=f"delete_{idx}_{mapping_idx}", help="Delete this mapping"):
                             st.session_state.question_mappings[idx].pop(mapping_idx)
-                            changes_made = True
                             st.rerun()
             
             # Update the mapping in session state
@@ -283,6 +215,9 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                 'Topic': selected_topic if selected_topic != "" else '',
                 'Subtopic': selected_subtopic if selected_subtopic != "" else ''
             }
+            
+            # Trigger auto-save on change
+            save_session_to_local_storage()
         
         # Store question and answer data for export
         st.session_state.question_tags[idx] = {
@@ -293,40 +228,16 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
         
         # Add separator line between questions
         st.markdown("---")
-    
-    # Auto-save if changes were made
-    if changes_made:
-        save_session_to_file()
 
 def main():
-    # Title and clear button in the same row
-    col1, col2 = st.columns([10, 1])
-    with col1:
-        st.title("📚 Question Tagging Tool")
-    with col2:
-        st.write("")  # Add spacing
-        st.write("")  # Add spacing
-        if st.button("🔄 Clear", help="Clear all data and start fresh"):
-            # Clear all session state
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            
-            # Delete session file
-            if os.path.exists(SESSION_FILE):
-                os.remove(SESSION_FILE)
-            
-            st.rerun()
-    
+    st.title("📚 Question Tagging Tool")
     st.markdown("Upload your Questions.xlsx file and tag each question with Subject → Topic → Subtopic")
     
-    # Check for and load existing session
-    if 'session_restored' not in st.session_state:
-        restore_time = load_session_from_file()
-        if restore_time:
-            st.info(f"♻️ Restored previous session from {restore_time}")
+    # Inject JavaScript for local storage operations
+    inject_js_for_local_storage()
     
-    # Auto-save check
-    auto_save_check()
+    # Create auto-save component
+    create_auto_save_component()
     
     # Load subjects data
     subjects_df = load_subjects_data()
@@ -339,25 +250,13 @@ def main():
     
     st.success(f"Loaded {len(subjects_df)} subject-topic-subtopic combinations")
     
-    # File upload or use restored data
+    # File upload
     uploaded_file = st.file_uploader("Upload Questions.xlsx", type=['xlsx'])
     
-    # Check if we have restored questions data
-    if uploaded_file is None and 'questions_data' in st.session_state and st.session_state.questions_data is not None:
-        # Use restored data
-        questions_df = st.session_state.questions_data
-        st.info(f"Using previously uploaded file: {st.session_state.get('uploaded_file_name', 'Questions.xlsx')}")
-    elif uploaded_file is not None:
+    if uploaded_file is not None:
         try:
             # Read questions file
             questions_df = pd.read_excel(uploaded_file)
-            
-            # Store for session persistence
-            st.session_state.questions_data = questions_df
-            st.session_state.uploaded_file_name = uploaded_file.name
-            
-            # Save session after upload
-            save_session_to_file()
             
             # Check for required columns (case-insensitive)
             columns_lower = [col.strip().lower() for col in questions_df.columns]
@@ -390,81 +289,77 @@ def main():
             
             st.success(f"Loaded {len(questions_df)} questions")
             
-        except Exception as e:
-            st.error(f"Error processing questions file: {str(e)}")
-            return
-    else:
-        questions_df = None
-    
-    if questions_df is not None:
-        # Display questions in table format with dropdowns
-        st.markdown("---")
-        create_table_with_dropdowns(questions_df, hierarchy)
-        
-        # Export functionality
-        st.markdown("### Export Tagged Questions")
-        
-        # Check if all questions are tagged
-        tagged_count = 0
-        total_mappings = 0
-        for tags in st.session_state.question_tags.values():
-            for mapping in tags.get('Mappings', []):
-                total_mappings += 1
-                if mapping['Subject'] and mapping['Topic'] and mapping['Subtopic']:
-                    tagged_count += 1
-        
-        st.info(f"Tagged mappings: {tagged_count}/{total_mappings}")
-        
-        if st.button("📥 Export Tagged Questions", type="primary"):
-            # Create export DataFrame with multiple rows for multiple mappings
-            export_data = []
-            for idx, tags in st.session_state.question_tags.items():
-                mappings = tags.get('Mappings', [])
-                
-                # If there are valid mappings, create a row for each
-                valid_mappings = [m for m in mappings if m['Subject'] or m['Topic'] or m['Subtopic']]
-                
-                if valid_mappings:
-                    for mapping in valid_mappings:
+            # Display questions in table format with dropdowns
+            st.markdown("---")
+            create_table_with_dropdowns(questions_df, hierarchy)
+            
+            # Export functionality
+            st.markdown("### Export Tagged Questions")
+            
+            # Check if all questions are tagged
+            tagged_count = 0
+            total_mappings = 0
+            for tags in st.session_state.question_tags.values():
+                for mapping in tags.get('Mappings', []):
+                    total_mappings += 1
+                    if mapping['Subject'] and mapping['Topic'] and mapping['Subtopic']:
+                        tagged_count += 1
+            
+            st.info(f"Tagged mappings: {tagged_count}/{total_mappings}")
+            
+            if st.button("📥 Export Tagged Questions", type="primary"):
+                # Create export DataFrame with multiple rows for multiple mappings
+                export_data = []
+                for idx, tags in st.session_state.question_tags.items():
+                    mappings = tags.get('Mappings', [])
+                    
+                    # If there are valid mappings, create a row for each
+                    valid_mappings = [m for m in mappings if m['Subject'] or m['Topic'] or m['Subtopic']]
+                    
+                    if valid_mappings:
+                        for mapping in valid_mappings:
+                            export_data.append({
+                                'Question': tags['Question'],
+                                'Answer': tags['Answer'],
+                                'Subject': mapping['Subject'] or '',
+                                'Topic': mapping['Topic'] or '',
+                                'Subtopic': mapping['Subtopic'] or ''
+                            })
+                    else:
+                        # If no valid mappings, still include the question with empty tags
                         export_data.append({
                             'Question': tags['Question'],
                             'Answer': tags['Answer'],
-                            'Subject': mapping['Subject'] or '',
-                            'Topic': mapping['Topic'] or '',
-                            'Subtopic': mapping['Subtopic'] or ''
+                            'Subject': '',
+                            'Topic': '',
+                            'Subtopic': ''
                         })
-                else:
-                    # If no valid mappings, still include the question with empty tags
-                    export_data.append({
-                        'Question': tags['Question'],
-                        'Answer': tags['Answer'],
-                        'Subject': '',
-                        'Topic': '',
-                        'Subtopic': ''
-                    })
-            
-            export_df = pd.DataFrame(export_data)
-            
-            # Convert to Excel bytes
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                export_df.to_excel(writer, index=False, sheet_name='Tagged Questions')
-            
-            excel_data = output.getvalue()
-            
-            # Download button
-            st.download_button(
-                label="📥 Download Tagged Questions Excel",
-                data=excel_data,
-                file_name="tagged_questions.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            
-            st.success("✅ Export ready! Click the download button above.")
-            
-            # Show preview
-            with st.expander("Preview Export Data"):
-                st.dataframe(export_df)
+                
+                export_df = pd.DataFrame(export_data)
+                
+                # Convert to Excel bytes
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    export_df.to_excel(writer, index=False, sheet_name='Tagged Questions')
+                
+                excel_data = output.getvalue()
+                
+                # Download button
+                st.download_button(
+                    label="📥 Download Tagged Questions Excel",
+                    data=excel_data,
+                    file_name="tagged_questions.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+                
+                st.success("✅ Export ready! Click the download button above.")
+                
+                # Show preview
+                with st.expander("Preview Export Data"):
+                    st.dataframe(export_df)
+        
+        except Exception as e:
+            st.error(f"Error processing questions file: {str(e)}")
     
     # Sidebar information
     with st.sidebar:
@@ -487,21 +382,41 @@ def main():
         - Answer
         """)
         
-        st.markdown("### 🔄 Auto-Save Enabled")
-        st.markdown("""
-        ✅ Your work is automatically saved every 10 seconds
+        st.markdown("### 💾 Session Management")
+        st.markdown("Your work is automatically saved every 30 seconds and when you make changes.")
         
-        ✅ Session persists even if internet disconnects
+        # Manual save button
+        if st.button("💾 Save Now", help="Manually save current session"):
+            if save_session_to_local_storage():
+                st.success("Session saved!")
         
-        ✅ Automatically restored when you reload the page
-        """)
+        # Export session backup
+        if st.button("📥 Export Session Backup", help="Download session as JSON file"):
+            backup_data = export_session_backup()
+            if backup_data:
+                st.download_button(
+                    label="Download Backup",
+                    data=backup_data,
+                    file_name="question_tagging_backup.json",
+                    mime="application/json"
+                )
         
-        # Show session file info
-        if os.path.exists(SESSION_FILE):
-            file_size = os.path.getsize(SESSION_FILE) / 1024  # KB
-            file_time = datetime.fromtimestamp(os.path.getmtime(SESSION_FILE))
-            st.caption(f"Session file: {file_size:.1f} KB")
-            st.caption(f"Last saved: {file_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        # Import session backup
+        uploaded_backup = st.file_uploader("Import Session Backup", type=['json'])
+        if uploaded_backup is not None:
+            try:
+                backup_content = uploaded_backup.read().decode('utf-8')
+                if import_session_backup(backup_content):
+                    st.success("Session restored!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Failed to import backup: {str(e)}")
+        
+        # Clear session
+        if st.button("🗑️ Clear Session", help="Clear all current work"):
+            clear_session()
+            st.success("Session cleared!")
+            st.rerun()
 
 if __name__ == "__main__":
     main()

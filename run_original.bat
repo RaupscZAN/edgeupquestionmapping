@@ -1,0 +1,3 @@
+@echo off
+echo Starting Original Question Tagging Tool...
+python -m streamlit run app.py
