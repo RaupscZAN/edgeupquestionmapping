@@ -147,18 +147,20 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                 st.caption(f"✅ Auto-saved {int(time_ago/60)}m ago")
     
     # Create the table structure using columns
-    header_cols = st.columns([0.3, 2.4, 1.5, 1.5, 1.5, 0.8])  # Adjusted for add button
+    header_cols = st.columns([0.3, 2.0, 2.0, 1.2, 1.2, 1.2, 0.8])  # Added Answer column
     with header_cols[0]:
         st.markdown("**#**")
     with header_cols[1]:
         st.markdown("**Question**")
     with header_cols[2]:
-        st.markdown("**Subject**")
+        st.markdown("**Answer**")
     with header_cols[3]:
-        st.markdown("**Topic**")
+        st.markdown("**Subject**")
     with header_cols[4]:
-        st.markdown("**Subtopic**")
+        st.markdown("**Topic**")
     with header_cols[5]:
+        st.markdown("**Subtopic**")
+    with header_cols[6]:
         st.markdown("**Actions**")
     
     st.markdown("---")
@@ -178,7 +180,7 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
         # Display each mapping for this question
         for mapping_idx, mapping in enumerate(st.session_state.question_mappings[idx]):
             # Create columns for this row
-            row_cols = st.columns([0.3, 2.4, 1.5, 1.5, 1.5, 0.8])
+            row_cols = st.columns([0.3, 2.0, 2.0, 1.2, 1.2, 1.2, 0.8])
             
             # Number column (only show for first mapping)
             with row_cols[0]:
@@ -194,8 +196,15 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                 else:
                     st.markdown("")
             
-            # Subject dropdown
+            # Answer column (only show for first mapping)
             with row_cols[2]:
+                if mapping_idx == 0:
+                    st.markdown(f"*{answer}*")
+                else:
+                    st.markdown("")
+            
+            # Subject dropdown
+            with row_cols[3]:
                 subject_key = f"subject_{idx}_{mapping_idx}"
                 current_subject = mapping.get('Subject', '')
                 subject_index = all_subjects.index(current_subject) + 1 if current_subject in all_subjects else 0
@@ -212,7 +221,7 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                     changes_made = True
             
             # Topic dropdown (dependent on subject)
-            with row_cols[3]:
+            with row_cols[4]:
                 topic_options = [""]
                 topic_index = 0
                 
@@ -235,7 +244,7 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                     changes_made = True
             
             # Subtopic dropdown (dependent on subject and topic)
-            with row_cols[4]:
+            with row_cols[5]:
                 subtopic_options = [""]
                 subtopic_index = 0
                 
@@ -258,7 +267,7 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
                     changes_made = True
             
             # Action buttons
-            with row_cols[5]:
+            with row_cols[6]:
                 button_cols = st.columns(2)
                 
                 # Add mapping button (only show for last mapping)
