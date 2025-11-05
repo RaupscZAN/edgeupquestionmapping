@@ -21,13 +21,91 @@ st.set_page_config(
     layout="wide"
 )
 
-# Session file path
-SESSION_FILE = "session_backup.pkl"
+# Session file paths
+TABS_MASTER_FILE = "tabs_master.pkl"
 AUTO_SAVE_INTERVAL = 10  # seconds
 
-def save_session_to_file():
-    """Save the current session state to a local file."""
+def get_session_file_path(tab_name):
+    """Get the session file path for a specific tab."""
+    safe_tab_name = "".join(c for c in tab_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    safe_tab_name = safe_tab_name.replace(' ', '_')
+    return f"session_backup_{safe_tab_name}.pkl"
+
+def get_active_tabs():
+    """Get list of active tabs."""
     try:
+        if os.path.exists(TABS_MASTER_FILE):
+            with open(TABS_MASTER_FILE, 'rb') as f:
+                tabs_data = pickle.load(f)
+            return tabs_data.get('tabs', [])
+    except Exception as e:
+        print(f"Error loading tabs: {e}")
+    return []
+
+def save_active_tabs(tabs_list):
+    """Save the list of active tabs."""
+    try:
+        tabs_data = {
+            'tabs': tabs_list,
+            'timestamp': datetime.now().isoformat()
+        }
+        with open(TABS_MASTER_FILE, 'wb') as f:
+            pickle.dump(tabs_data, f)
+        return True
+    except Exception as e:
+        print(f"Error saving tabs: {e}")
+        return False
+
+def create_new_tab(tab_name):
+    """Create a new tab and add it to active tabs."""
+    if not tab_name or tab_name.strip() == "":
+        return False
+    
+    tab_name = tab_name.strip()
+    active_tabs = get_active_tabs()
+    
+    # Check if tab already exists
+    if tab_name in active_tabs:
+        return False
+    
+    # Add new tab to list
+    active_tabs.append(tab_name)
+    save_active_tabs(active_tabs)
+    
+    # Initialize empty session for new tab
+    session_file = get_session_file_path(tab_name)
+    try:
+        initial_session = {
+            'timestamp': datetime.now().isoformat(),
+            'question_tags': {},
+            'question_mappings': {},
+            'question_col': 'Question',
+            'answer_col': 'Answer',
+            'uploaded_file_name': None,
+            'questions_data': None
+        }
+        with open(session_file, 'wb') as f:
+            pickle.dump(initial_session, f)
+        return True
+    except Exception as e:
+        print(f"Error creating new tab session: {e}")
+        return False
+
+def switch_tab(tab_name):
+    """Switch to a different tab by loading its session data."""
+    if not tab_name:
+        return False
+    
+    session_file = get_session_file_path(tab_name)
+    return load_session_from_file(tab_name)
+
+def save_session_to_file(tab_name=None):
+    """Save the current session state to a tab-specific file."""
+    try:
+        if not tab_name:
+            tab_name = st.session_state.get('current_tab', 'Default')
+        
+        session_file = get_session_file_path(tab_name)
         session_data = {
             'timestamp': datetime.now().isoformat(),
             'question_tags': st.session_state.get('question_tags', {}),
@@ -38,7 +116,7 @@ def save_session_to_file():
             'questions_data': st.session_state.get('questions_data', None)
         }
         
-        with open(SESSION_FILE, 'wb') as f:
+        with open(session_file, 'wb') as f:
             pickle.dump(session_data, f)
         
         st.session_state.last_save_time = datetime.now()
@@ -47,11 +125,15 @@ def save_session_to_file():
         print(f"Error saving session: {e}")
         return False
 
-def load_session_from_file():
-    """Load session state from a local file."""
+def load_session_from_file(tab_name=None):
+    """Load session state from a tab-specific file."""
     try:
-        if os.path.exists(SESSION_FILE):
-            with open(SESSION_FILE, 'rb') as f:
+        if not tab_name:
+            tab_name = st.session_state.get('current_tab', 'Default')
+        
+        session_file = get_session_file_path(tab_name)
+        if os.path.exists(session_file):
+            with open(session_file, 'rb') as f:
                 session_data = pickle.load(f)
             
             # Restore session state
@@ -62,6 +144,7 @@ def load_session_from_file():
             st.session_state.uploaded_file_name = session_data.get('uploaded_file_name', None)
             st.session_state.questions_data = session_data.get('questions_data', None)
             st.session_state.session_restored = True
+            st.session_state.current_tab = tab_name
             
             return session_data.get('timestamp', None)
     except Exception as e:
@@ -75,7 +158,8 @@ def auto_save_check():
     
     time_since_save = (datetime.now() - st.session_state.last_save_time).total_seconds()
     if time_since_save > AUTO_SAVE_INTERVAL:
-        save_session_to_file()
+        current_tab = st.session_state.get('current_tab', 'Default')
+        save_session_to_file(current_tab)
 
 def load_subjects_data() -> pd.DataFrame:
     """Load the subjects hierarchy from Excel file."""
@@ -305,7 +389,8 @@ def create_table_with_dropdowns(questions_df: pd.DataFrame, hierarchy: Dict):
     
     # Auto-save if changes were made
     if changes_made:
-        save_session_to_file()
+        current_tab = st.session_state.get('current_tab', 'Default')
+        save_session_to_file(current_tab)
 
 def main():
     # Title and clear button in the same row
@@ -315,24 +400,105 @@ def main():
     with col2:
         st.write("")  # Add spacing
         st.write("")  # Add spacing
-        if st.button("🔄 Clear", help="Clear all data and start fresh"):
-            # Clear all session state
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+        if st.button("🔄 Clear Current Tab", help="Clear current tab data and start fresh"):
+            current_tab = st.session_state.get('current_tab', 'Default')
+            # Clear current tab session state
+            keys_to_clear = ['question_tags', 'question_mappings', 'uploaded_file_name', 'questions_data', 'session_restored']
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
             
-            # Delete session file
-            if os.path.exists(SESSION_FILE):
-                os.remove(SESSION_FILE)
+            # Delete current tab session file
+            session_file = get_session_file_path(current_tab)
+            if os.path.exists(session_file):
+                os.remove(session_file)
             
             st.rerun()
     
+    # Initialize tabs management
+    if 'current_tab' not in st.session_state:
+        # Check if there are any existing tabs
+        active_tabs = get_active_tabs()
+        if active_tabs:
+            st.session_state.current_tab = active_tabs[0]
+        else:
+            # Create default tab
+            st.session_state.current_tab = 'Default'
+            create_new_tab('Default')
+    
+    # Tab management interface
+    active_tabs = get_active_tabs()
+    
+    # Create tab selection and new tab creation in columns
+    tab_col1, tab_col2 = st.columns([8, 2])
+    
+    with tab_col1:
+        if active_tabs:
+            # Tab selection
+            current_tab_index = active_tabs.index(st.session_state.current_tab) if st.session_state.current_tab in active_tabs else 0
+            selected_tab = st.selectbox(
+                "Select Tab:",
+                options=active_tabs,
+                index=current_tab_index,
+                key="tab_selector"
+            )
+            
+            # Switch tab if selection changed
+            if selected_tab != st.session_state.current_tab:
+                # Save current tab before switching
+                save_session_to_file(st.session_state.current_tab)
+                
+                # Switch to selected tab
+                st.session_state.current_tab = selected_tab
+                load_session_from_file(selected_tab)
+                st.rerun()
+    
+    with tab_col2:
+        # New tab creation
+        if st.button("➕ New Tab"):
+            st.session_state.show_new_tab_form = True
+            st.rerun()
+    
+    # New tab creation form
+    if st.session_state.get('show_new_tab_form', False):
+        with st.form("new_tab_form"):
+            st.write("Create New Tab")
+            new_tab_name = st.text_input("Tab Name:", placeholder="Enter tab name...")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.form_submit_button("Create"):
+                    if new_tab_name and new_tab_name.strip():
+                        if create_new_tab(new_tab_name.strip()):
+                            # Save current tab before switching
+                            save_session_to_file(st.session_state.current_tab)
+                            
+                            # Switch to new tab
+                            st.session_state.current_tab = new_tab_name.strip()
+                            st.session_state.show_new_tab_form = False
+                            load_session_from_file(new_tab_name.strip())
+                            st.rerun()
+                        else:
+                            st.error("Tab name already exists or is invalid!")
+                    else:
+                        st.error("Please enter a valid tab name!")
+            
+            with col2:
+                if st.form_submit_button("Cancel"):
+                    st.session_state.show_new_tab_form = False
+                    st.rerun()
+    
+    # Show current tab info
+    st.info(f"📂 Current Tab: **{st.session_state.current_tab}**")
+    
     st.markdown("Upload your Questions.xlsx file and tag each question with Subject → Topic → Subtopic")
     
-    # Check for and load existing session
+    # Check for and load existing session for current tab
     if 'session_restored' not in st.session_state:
-        restore_time = load_session_from_file()
+        current_tab = st.session_state.get('current_tab', 'Default')
+        restore_time = load_session_from_file(current_tab)
         if restore_time:
-            st.info(f"♻️ Restored previous session from {restore_time}")
+            st.info(f"♻️ Restored tab session from {restore_time}")
     
     # Auto-save check
     auto_save_check()
@@ -366,7 +532,8 @@ def main():
             st.session_state.uploaded_file_name = uploaded_file.name
             
             # Save session after upload
-            save_session_to_file()
+            current_tab = st.session_state.get('current_tab', 'Default')
+            save_session_to_file(current_tab)
             
             # Check for required columns (case-insensitive)
             columns_lower = [col.strip().lower() for col in questions_df.columns]
@@ -505,12 +672,18 @@ def main():
         ✅ Automatically restored when you reload the page
         """)
         
-        # Show session file info
-        if os.path.exists(SESSION_FILE):
-            file_size = os.path.getsize(SESSION_FILE) / 1024  # KB
-            file_time = datetime.fromtimestamp(os.path.getmtime(SESSION_FILE))
-            st.caption(f"Session file: {file_size:.1f} KB")
+        # Show current tab session file info
+        current_tab = st.session_state.get('current_tab', 'Default')
+        session_file = get_session_file_path(current_tab)
+        if os.path.exists(session_file):
+            file_size = os.path.getsize(session_file) / 1024  # KB
+            file_time = datetime.fromtimestamp(os.path.getmtime(session_file))
+            st.caption(f"Tab session file: {file_size:.1f} KB")
             st.caption(f"Last saved: {file_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Show total tabs
+        active_tabs = get_active_tabs()
+        st.caption(f"Active tabs: {len(active_tabs)}")
 
 if __name__ == "__main__":
     main()
